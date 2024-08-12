@@ -28,10 +28,9 @@ class PositionalEmbedding(nn.Module):
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)
         self.register_buffer('pe', pe)
-        print(pe)
 
     def forward(self, x):
-        x = x + self.pe[:, :x.shape[1], :].required_grad_('False')
+        x = x + self.pe[:, :x.shape[1], :].requires_grad_(False)
         return self.dropout(x)
 
 
@@ -65,7 +64,7 @@ class MultiHeadAttentionBlock(nn.Module):
         self.d_model = d_model
         self.h = h
         assert d_model % h == 0
-        self.d_k = d_model / h
+        self.d_k = d_model // h
         self.w_q = nn.Linear(d_model, d_model)
         self.w_k = nn.Linear(d_model, d_model)
         self.w_v = nn.Linear(d_model, d_model)
@@ -152,29 +151,30 @@ class Decoder(nn.Module):
     def forward(self,x,encoder_output,src_mask,tgt_mask):
         for layer in self.layers:
             x=layer(x,encoder_output,src_mask,tgt_mask)
-            return self.norm(x)
+        return self.norm(x)
 
 class ProjectionLayer(nn.Module):
     def __init__(self, d_model: int, vocab_size: int):
         super().__init__()
         self.proj=nn.Linear(d_model,vocab_size)
     def forward(self,x):
-        return torch.logsoftmax(self.proj(x),dim=-1)
+        return torch.log_softmax(self.proj(x),dim=-1)
 class Transformer(nn.Module):
-    def __init__(self,encoder:Encoder,decoder:Decoder,src_embed:InputEmbeddings,tgt_embed:InputEmbeddings,src_pos: PositionalEmbedding,projection_layer:ProjectionLayer):
+    def __init__(self,encoder:Encoder,decoder:Decoder,src_embed:InputEmbeddings,tgt_embed:InputEmbeddings,src_pos: PositionalEmbedding,tgt_pos: PositionalEmbedding,projection_layer:ProjectionLayer):
         super().__init__()
         self.encoder=encoder
         self.decoder=decoder
         self.src_embed=src_embed
         self.tgt_embed=tgt_embed
         self.src_pos=src_pos
+        self.tgt_pos=tgt_pos
         self.projection_layer=projection_layer
-    def encoder(self,src,src_mask):
+    def encode(self,src,src_mask):
         src=self.src_embed(src)
         src=self.src_pos(src)
         return self.encoder(src,src_mask)
-    def decoder(self,encoder_output,src_mask,tgt,tgt_mask):
-        tft=self.tgt_embed(tgt)
+    def decode(self,encoder_output,src_mask,tgt,tgt_mask):
+        tgt=self.tgt_embed(tgt)
         tgt=self.tgt_pos(tgt)
         return self.decoder(tgt,encoder_output,src_mask,tgt_mask)
     def project(self,x):
@@ -185,7 +185,7 @@ def build_transformer(src_vocab_size: int, tgt_vocab_size: int, src_seq_len: int
     tgt_embed=InputEmbeddings(d_model, tgt_vocab_size)
     # create the positional embedding
     src_pos=PositionalEmbedding(d_model,src_seq_len,dropout)
-    tgt_pos=PositionalEmbedding(d_model,tgt_vocab_size,dropout)
+    tgt_pos=PositionalEmbedding(d_model,tgt_seq_len,dropout)
     # create the encoder blocks
     encoder_blocks=[]
     for _ in range(N):
@@ -210,8 +210,3 @@ def build_transformer(src_vocab_size: int, tgt_vocab_size: int, src_seq_len: int
         if p.dim() >1:
             nn.init.xavier_uniform(p)
     return transformer
-
-
-# b = PositionalEmbedding(10, 4, 0.4)
-# x = torch.zeros(4, 10).unsqueeze(0)
-# b.forward(x)
